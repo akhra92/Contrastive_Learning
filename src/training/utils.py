@@ -1,0 +1,115 @@
+"""
+Shared training utilities: device selection, checkpointing, LR scheduling,
+and metric tracking.
+"""
+
+import math
+import os
+import torch
+import torch.nn as nn
+
+
+# ---------------------------------------------------------------------------
+# Device helpers
+# ---------------------------------------------------------------------------
+
+def get_device(device_str: str = "auto") -> torch.device:
+    """
+    Resolve device string to a torch.device.
+
+    'auto' preference order: MPS (Apple Silicon) > CUDA > CPU.
+    """
+    if device_str == "auto":
+        if torch.backends.mps.is_available():
+            return torch.device("mps")
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        return torch.device("cpu")
+    return torch.device(device_str)
+
+
+# ---------------------------------------------------------------------------
+# Checkpointing
+# ---------------------------------------------------------------------------
+
+def save_checkpoint(state: dict, path: str):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(state, path)
+
+
+def load_encoder_weights(encoder: nn.Module, checkpoint_path: str, device: torch.device):
+    """Load only encoder weights from a pre-training checkpoint."""
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+    ckpt = torch.load(checkpoint_path, map_location=device)
+    # Support both bare state_dict and wrapped {'encoder': state_dict}
+    state_dict = ckpt.get("encoder", ckpt)
+    encoder.load_state_dict(state_dict)
+    print(f"Loaded encoder weights from {checkpoint_path}")
+    return encoder
+
+
+# ---------------------------------------------------------------------------
+# Learning-rate schedule
+# ---------------------------------------------------------------------------
+
+def cosine_schedule_with_warmup(optimizer, warmup_epochs: int, total_epochs: int):
+    """
+    Linear warm-up for `warmup_epochs`, then cosine annealing to 0.
+    Returns a LambdaLR scheduler.
+    """
+    def lr_lambda(epoch: int) -> float:
+        if epoch < warmup_epochs:
+            return max(epoch / warmup_epochs, 1e-6)
+        progress = (epoch - warmup_epochs) / max(total_epochs - warmup_epochs, 1)
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+# ---------------------------------------------------------------------------
+# Class-imbalance weighting (multi-label)
+# ---------------------------------------------------------------------------
+
+def compute_pos_weight(label_matrix, device: torch.device) -> torch.Tensor:
+    """
+    Compute per-class positive weights for BCEWithLogitsLoss.
+
+    pos_weight[c] = (# negative examples for class c) / (# positive examples for class c)
+
+    This compensates for the severe class imbalance in NIH Chest X-ray14,
+    where some pathologies appear in < 0.5 % of images.
+    """
+    pos_counts = label_matrix.sum(axis=0).astype(float)
+    neg_counts = (len(label_matrix) - pos_counts).astype(float)
+    pos_weight = neg_counts / (pos_counts + 1e-8)
+    return torch.tensor(pos_weight, dtype=torch.float32, device=device)
+
+
+# ---------------------------------------------------------------------------
+# Simple metric accumulator
+# ---------------------------------------------------------------------------
+
+class AverageMeter:
+    """Track a running mean of a scalar (e.g., loss)."""
+
+    def __init__(self, name: str = ""):
+        self.name = name
+        self.reset()
+
+    def reset(self):
+        self.val = 0.0
+        self.sum = 0.0
+        self.count = 0
+
+    def update(self, val: float, n: int = 1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+
+    @property
+    def avg(self) -> float:
+        return self.sum / max(self.count, 1)
+
+    def __str__(self) -> str:
+        return f"{self.name}: {self.avg:.4f}"
