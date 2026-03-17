@@ -41,7 +41,7 @@ def load_encoder_weights(encoder: nn.Module, checkpoint_path: str, device: torch
     """Load only encoder weights from a pre-training checkpoint."""
     if not os.path.isfile(checkpoint_path):
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-    ckpt = torch.load(checkpoint_path, map_location=device)
+    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
     # Support both bare state_dict and wrapped {'encoder': state_dict}
     state_dict = ckpt.get("encoder", ckpt)
     encoder.load_state_dict(state_dict)

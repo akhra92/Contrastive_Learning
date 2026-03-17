@@ -32,7 +32,7 @@ class NTXentLoss(nn.Module):
         temperature : τ in the loss formula (default 0.07, as in SimCLR paper).
     """
 
-    def __init__(self, temperature: float = 0.07):
+    def __init__(self, temperature: float = 0.5):
         super().__init__()
         self.temperature = temperature
         self.criterion = nn.CrossEntropyLoss()

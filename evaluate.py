@@ -71,7 +71,7 @@ def main():
         dropout=model_cfg["dropout"],
     ).to(device)
 
-    ckpt = torch.load(args.checkpoint, map_location=device)
+    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=True)
     state_dict = ckpt.get("model", ckpt)
     model.load_state_dict(state_dict)
     model.eval()
