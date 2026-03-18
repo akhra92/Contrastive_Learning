@@ -24,6 +24,7 @@ from src.models.classifier import ChestXrayClassifier
 from src.models.encoder import SimCLREncoder
 from src.training.utils import (
     AverageMeter,
+    EarlyStopping,
     cosine_schedule_with_warmup,
     compute_pos_weight,
     get_device,
@@ -141,6 +142,11 @@ def finetune(config: dict):
 
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": []}
+    early_stopping = EarlyStopping(
+        patience=train_cfg.get("early_stopping_patience", 0),
+        min_delta=train_cfg.get("early_stopping_min_delta", 1e-4),
+    )
+    use_early_stopping = train_cfg.get("early_stopping_patience", 0) > 0
 
     for epoch in range(1, train_cfg["epochs"] + 1):
         # ---- Train --------------------------------------------------- #
@@ -212,6 +218,10 @@ def finetune(config: dict):
                     best_path,
                 )
                 print(f"  [Best] Saved model to {best_path}")
+
+        if use_early_stopping and early_stopping.step(val_loss):
+            print(f"Early stopping triggered at epoch {epoch} (patience={early_stopping.patience})")
+            break
 
     # Save loss history
     log_path = os.path.join(log_cfg["log_dir"], f"finetune_{mode}_loss.txt")

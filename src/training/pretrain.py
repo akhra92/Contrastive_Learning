@@ -21,6 +21,7 @@ from src.models.encoder import SimCLREncoder
 from src.models.projection_head import ProjectionHead
 from src.training.utils import (
     AverageMeter,
+    EarlyStopping,
     cosine_schedule_with_warmup,
     get_device,
     save_checkpoint,
@@ -102,6 +103,11 @@ def pretrain(config: dict):
 
     loss_history = []
     best_loss = float("inf")
+    early_stopping = EarlyStopping(
+        patience=train_cfg.get("early_stopping_patience", 0),
+        min_delta=train_cfg.get("early_stopping_min_delta", 1e-4),
+    )
+    use_early_stopping = train_cfg.get("early_stopping_patience", 0) > 0
 
     for epoch in range(1, train_cfg["epochs"] + 1):
         encoder.train()
@@ -163,6 +169,10 @@ def pretrain(config: dict):
                     best_path,
                 )
                 print(f"  [Best] Saved encoder to {best_path}")
+
+        if use_early_stopping and early_stopping.step(epoch_loss):
+            print(f"Early stopping triggered at epoch {epoch} (patience={early_stopping.patience})")
+            break
 
     # Save final loss history
     log_path = os.path.join(log_cfg["log_dir"], "pretrain_loss.txt")

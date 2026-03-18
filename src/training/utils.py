@@ -87,6 +87,32 @@ def compute_pos_weight(label_matrix, device: torch.device) -> torch.Tensor:
 
 
 # ---------------------------------------------------------------------------
+# Early stopping
+# ---------------------------------------------------------------------------
+
+class EarlyStopping:
+    """Stop training when a monitored metric stops improving."""
+
+    def __init__(self, patience: int = 10, min_delta: float = 1e-4):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best = float("inf")
+        self.counter = 0
+        self.should_stop = False
+
+    def step(self, metric: float) -> bool:
+        """Update with latest metric. Returns True if training should stop."""
+        if metric < self.best - self.min_delta:
+            self.best = metric
+            self.counter = 0
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.should_stop = True
+        return self.should_stop
+
+
+# ---------------------------------------------------------------------------
 # Simple metric accumulator
 # ---------------------------------------------------------------------------
 
