@@ -33,6 +33,7 @@ def parse_args():
     p.add_argument("--batch_size", type=int, help="Override batch size")
     p.add_argument("--lr", type=float, help="Override learning rate")
     p.add_argument("--device", choices=["auto", "mps", "cuda", "cpu"], help="Override device")
+    p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     return p.parse_args()
 
 
@@ -54,6 +55,8 @@ def main():
         config["training"]["lr"] = args.lr
     if args.device:
         config["training"]["device"] = args.device
+    if args.wandb:
+        config.setdefault("wandb", {})["enabled"] = True
 
     mode = config["training"]["mode"]
     print("=" * 60)

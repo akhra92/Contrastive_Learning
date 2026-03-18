@@ -1,12 +1,17 @@
 """
 Shared training utilities: device selection, checkpointing, LR scheduling,
-and metric tracking.
+metric tracking, and W&B integration.
 """
 
 import math
 import os
 import torch
 import torch.nn as nn
+
+try:
+    import wandb as _wandb
+except ImportError:
+    _wandb = None
 
 
 # ---------------------------------------------------------------------------
@@ -139,3 +144,39 @@ class AverageMeter:
 
     def __str__(self) -> str:
         return f"{self.name}: {self.avg:.4f}"
+
+
+# ---------------------------------------------------------------------------
+# Weights & Biases helpers
+# ---------------------------------------------------------------------------
+
+def wandb_available() -> bool:
+    return _wandb is not None
+
+
+def init_wandb(config: dict, project: str, run_name: str | None = None):
+    """Initialise a W&B run. Returns the run object or None if disabled/missing."""
+    wandb_cfg = config.get("wandb", {})
+    if not wandb_cfg.get("enabled", False):
+        return None
+    if _wandb is None:
+        print("Warning: wandb not installed — skipping W&B logging. pip install wandb")
+        return None
+    return _wandb.init(
+        project=wandb_cfg.get("project", project),
+        name=run_name or wandb_cfg.get("run_name"),
+        config=config,
+        tags=wandb_cfg.get("tags", []),
+    )
+
+
+def wandb_log(metrics: dict, step: int | None = None):
+    """Log metrics if a W&B run is active."""
+    if _wandb is not None and _wandb.run is not None:
+        _wandb.log(metrics, step=step)
+
+
+def wandb_finish():
+    """Finish the active W&B run if one exists."""
+    if _wandb is not None and _wandb.run is not None:
+        _wandb.finish()

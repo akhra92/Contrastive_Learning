@@ -24,7 +24,10 @@ from src.training.utils import (
     EarlyStopping,
     cosine_schedule_with_warmup,
     get_device,
+    init_wandb,
     save_checkpoint,
+    wandb_finish,
+    wandb_log,
 )
 
 
@@ -48,6 +51,8 @@ def pretrain(config: dict):
 
     device = get_device(train_cfg["device"])
     print(f"Device: {device}")
+
+    run = init_wandb(config, project="simclr-pretrain", run_name="pretrain")
 
     # ------------------------------------------------------------------ #
     # Dataset & DataLoader                                                 #
@@ -151,6 +156,8 @@ def pretrain(config: dict):
             f" | {elapsed:.1f}s"
         )
 
+        wandb_log({"loss": epoch_loss, "lr": optimizer.param_groups[0]["lr"]}, step=epoch)
+
         # ---- Checkpointing ------------------------------------------- #
         is_best = epoch_loss < best_loss
         if is_best:
@@ -180,5 +187,6 @@ def pretrain(config: dict):
         for ep, l in enumerate(loss_history, start=1):
             f.write(f"{ep}\t{l:.6f}\n")
 
+    wandb_finish()
     print(f"\nPre-training complete. Best loss: {best_loss:.4f}")
     print(f"Encoder checkpoint: {os.path.join(ckpt_cfg['save_dir'], 'best_encoder.pth')}")

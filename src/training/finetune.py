@@ -28,8 +28,11 @@ from src.training.utils import (
     cosine_schedule_with_warmup,
     compute_pos_weight,
     get_device,
+    init_wandb,
     load_encoder_weights,
     save_checkpoint,
+    wandb_finish,
+    wandb_log,
 )
 
 
@@ -81,6 +84,8 @@ def finetune(config: dict):
 
     device = get_device(train_cfg["device"])
     print(f"Device: {device} | Mode: {mode}")
+
+    run = init_wandb(config, project="simclr-finetune", run_name=f"finetune-{mode}")
 
     # ------------------------------------------------------------------ #
     # Datasets                                                             #
@@ -200,6 +205,12 @@ def finetune(config: dict):
             f" | {elapsed:.1f}s"
         )
 
+        wandb_log({
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "lr": optimizer.param_groups[-1]["lr"],
+        }, step=epoch)
+
         # ---- Checkpointing ------------------------------------------- #
         is_best = val_loss < best_val_loss
         if is_best:
@@ -230,6 +241,7 @@ def finetune(config: dict):
         for ep, (tl, vl) in enumerate(zip(history["train_loss"], history["val_loss"]), start=1):
             f.write(f"{ep}\t{tl:.6f}\t{vl:.6f}\n")
 
+    wandb_finish()
     print(f"\nFine-tuning complete. Best val loss: {best_val_loss:.4f}")
 
 

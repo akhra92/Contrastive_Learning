@@ -38,6 +38,12 @@ checkpointing:
   save_dir: "checkpoints/finetune"
   save_every: 5
 
+wandb:
+  enabled: false
+  project: "simclr-finetune"
+  run_name: null      # auto-generated if null
+  tags: ["finetune"]
+
 logging:
   log_dir: "logs"
   log_every: 50

@@ -21,6 +21,7 @@ def parse_args():
     p.add_argument("--lr", type=float, help="Override learning rate")
     p.add_argument("--temperature", type=float, help="Override NT-Xent temperature")
     p.add_argument("--device", choices=["auto", "mps", "cuda", "cpu"], help="Override device")
+    p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     return p.parse_args()
 
 
@@ -41,6 +42,8 @@ def main():
         config["training"]["temperature"] = args.temperature
     if args.device:
         config["training"]["device"] = args.device
+    if args.wandb:
+        config.setdefault("wandb", {})["enabled"] = True
 
     print("=" * 60)
     print("SimCLR Pre-training")

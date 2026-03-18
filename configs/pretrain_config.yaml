@@ -39,6 +39,12 @@ checkpointing:
   save_dir: "checkpoints/pretrain"
   save_every: 10
 
+wandb:
+  enabled: false
+  project: "simclr-pretrain"
+  run_name: null      # auto-generated if null
+  tags: ["pretrain", "simclr"]
+
 logging:
   log_dir: "logs"
   log_every: 50    # steps
