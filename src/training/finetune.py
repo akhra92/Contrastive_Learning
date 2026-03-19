@@ -27,6 +27,7 @@ from src.training.utils import (
     EarlyStopping,
     cosine_schedule_with_warmup,
     compute_pos_weight,
+    find_image_dir,
     get_device,
     init_wandb,
     load_encoder_weights,
@@ -96,7 +97,7 @@ def finetune(config: dict):
 
     # Locate image directory (handles both flat and split archive structures)
     raw_dir = data_cfg["raw_dir"]
-    image_dir = _find_image_dir(raw_dir)
+    image_dir = find_image_dir(raw_dir)
 
     train_aug = FinetuneAugmentation(config, train=True)
     val_aug = FinetuneAugmentation(config, train=False)
@@ -243,15 +244,3 @@ def finetune(config: dict):
 
     wandb_finish()
     print(f"\nFine-tuning complete. Best val loss: {best_val_loss:.4f}")
-
-
-def _find_image_dir(raw_dir: str) -> str:
-    """Find the directory containing the .png X-ray images."""
-    # Flat layout: all images directly in raw_dir/images/
-    flat = os.path.join(raw_dir, "images")
-    if os.path.isdir(flat):
-        return flat
-    # Split archive layout: images_001, images_002, ...
-    # Return the parent and let the dataset handle subdirectory traversal
-    # For simplicity we require flat layout; download script handles this.
-    return raw_dir

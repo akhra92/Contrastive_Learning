@@ -23,7 +23,7 @@ from src.evaluation.metrics import collect_predictions, evaluate_multilabel, pri
 from src.evaluation.visualize import plot_gradcam, plot_loss_curves, plot_roc_curves, plot_tsne
 from src.models.classifier import ChestXrayClassifier
 from src.models.encoder import SimCLREncoder
-from src.training.utils import get_device
+from src.training.utils import find_image_dir, get_device
 
 
 def parse_args():
@@ -81,7 +81,7 @@ def main():
     # Test dataset                                                         #
     # ------------------------------------------------------------------ #
     test_df = pd.read_csv(os.path.join(data_cfg["processed_dir"], "test.csv"))
-    image_dir = _find_image_dir(data_cfg["raw_dir"])
+    image_dir = find_image_dir(data_cfg["raw_dir"])
     test_aug = FinetuneAugmentation(config, train=False)
     test_ds = ChestXrayDataset(test_df, image_dir, transform=test_aug)
     test_loader = DataLoader(
@@ -144,12 +144,6 @@ def main():
 
     print("\nEvaluation complete. Outputs saved to:", args.output_dir)
 
-
-def _find_image_dir(raw_dir: str) -> str:
-    flat = os.path.join(raw_dir, "images")
-    if os.path.isdir(flat):
-        return flat
-    return raw_dir
 
 
 if __name__ == "__main__":

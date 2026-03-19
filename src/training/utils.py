@@ -34,6 +34,46 @@ def get_device(device_str: str = "auto") -> torch.device:
 
 
 # ---------------------------------------------------------------------------
+# Data path helpers
+# ---------------------------------------------------------------------------
+
+def find_image_dir(raw_dir: str) -> str:
+    """
+    Locate the directory containing X-ray .png images.
+
+    Checks, in order:
+      1. raw_dir/images/          (flat layout from download script)
+      2. raw_dir/images_001/ …    (split-archive layout)
+      3. raw_dir itself           (only if it contains .png files)
+
+    Raises FileNotFoundError with an actionable message if nothing is found.
+    """
+    # 1. Flat layout
+    flat = os.path.join(raw_dir, "images")
+    if os.path.isdir(flat):
+        return flat
+
+    # 2. Split-archive layout (images_001, images_002, …)
+    import glob as _glob
+    split_dirs = sorted(_glob.glob(os.path.join(raw_dir, "images_*")))
+    if split_dirs and os.path.isdir(split_dirs[0]):
+        return raw_dir
+
+    # 3. Images directly in raw_dir
+    sample = _glob.glob(os.path.join(raw_dir, "*.png"))
+    if sample:
+        return raw_dir
+
+    raise FileNotFoundError(
+        f"No X-ray images found under '{raw_dir}'. Expected one of:\n"
+        f"  • {flat}/  (flat layout)\n"
+        f"  • {raw_dir}/images_001/ … (split archives)\n"
+        f"  • .png files directly in {raw_dir}/\n"
+        "Run scripts/download_data.sh to download and organise the dataset."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Checkpointing
 # ---------------------------------------------------------------------------
 
