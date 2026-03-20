@@ -5,6 +5,7 @@ Usage:
     python train_pretrain.py
     python train_pretrain.py --config configs/pretrain_config.yaml
     python train_pretrain.py --epochs 200 --batch_size 512 --device mps
+    python train_pretrain.py --resume checkpoints/pretrain/latest_pretrain.pth
 """
 
 import argparse
@@ -21,6 +22,8 @@ def parse_args():
     p.add_argument("--lr", type=float, help="Override learning rate")
     p.add_argument("--temperature", type=float, help="Override NT-Xent temperature")
     p.add_argument("--device", choices=["auto", "mps", "cuda", "cpu"], help="Override device")
+    p.add_argument("--seed", type=int, help="Override random seed (default: 42)")
+    p.add_argument("--resume", type=str, help="Path to checkpoint to resume training from")
     p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     return p.parse_args()
 
@@ -42,6 +45,8 @@ def main():
         config["training"]["temperature"] = args.temperature
     if args.device:
         config["training"]["device"] = args.device
+    if args.seed is not None:
+        config["training"]["seed"] = args.seed
     if args.wandb:
         config.setdefault("wandb", {})["enabled"] = True
 
@@ -53,10 +58,13 @@ def main():
     print(f"  Batch size      : {config['training']['batch_size']}")
     print(f"  Temperature (τ) : {config['training']['temperature']}")
     print(f"  Learning rate   : {config['training']['lr']}")
+    print(f"  Seed            : {config['training'].get('seed', 42)}")
     print(f"  Device          : {config['training']['device']}")
+    if args.resume:
+        print(f"  Resume from     : {args.resume}")
     print("=" * 60)
 
-    pretrain(config)
+    pretrain(config, resume_from=args.resume)
 
 
 if __name__ == "__main__":

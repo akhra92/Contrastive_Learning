@@ -1,10 +1,13 @@
 """
 Shared training utilities: device selection, checkpointing, LR scheduling,
-metric tracking, and W&B integration.
+metric tracking, reproducibility, and W&B integration.
 """
 
 import math
 import os
+import random
+
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -12,6 +15,20 @@ try:
     import wandb as _wandb
 except ImportError:
     _wandb = None
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility
+# ---------------------------------------------------------------------------
+
+def set_seed(seed: int = 42):
+    """Set random seed for reproducibility across Python, NumPy, and PyTorch."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +97,21 @@ def find_image_dir(raw_dir: str) -> str:
 def save_checkpoint(state: dict, path: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(state, path)
+
+
+def save_training_state(path: str, **kwargs):
+    """Save full training state for resuming (models, optimizer, scheduler, epoch, etc.)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(kwargs, path)
+
+
+def load_training_state(path: str, device: torch.device) -> dict:
+    """Load a full training state checkpoint for resuming."""
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"Resume checkpoint not found: {path}")
+    state = torch.load(path, map_location=device, weights_only=False)
+    print(f"Resuming from {path} (epoch {state.get('epoch', '?')})")
+    return state
 
 
 def load_encoder_weights(encoder: nn.Module, checkpoint_path: str, device: torch.device):

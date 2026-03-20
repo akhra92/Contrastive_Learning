@@ -26,6 +26,7 @@ training:
   use_class_weights: true
   early_stopping_patience: 10   # 0 to disable; stop after N epochs with no improvement
   early_stopping_min_delta: 1.0e-4
+  seed: 42
   device: "auto"
 
 augmentation:

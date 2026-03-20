@@ -31,7 +31,10 @@ from src.training.utils import (
     get_device,
     init_wandb,
     load_encoder_weights,
+    load_training_state,
     save_checkpoint,
+    save_training_state,
+    set_seed,
     wandb_finish,
     wandb_log,
 )
@@ -76,12 +79,14 @@ def _build_optimizer(model: ChestXrayClassifier, config: dict):
     )
 
 
-def finetune(config: dict):
+def finetune(config: dict, resume_from: str | None = None):
     train_cfg = config["training"]
     data_cfg = config["data"]
     ckpt_cfg = config["checkpointing"]
     log_cfg = config["logging"]
     mode = train_cfg["mode"]
+
+    set_seed(train_cfg.get("seed", 42))
 
     device = get_device(train_cfg["device"])
     print(f"Device: {device} | Mode: {mode}")
@@ -141,11 +146,9 @@ def finetune(config: dict):
     )
 
     # ------------------------------------------------------------------ #
-    # Training loop                                                        #
+    # Resume from checkpoint (if requested)                                #
     # ------------------------------------------------------------------ #
-    os.makedirs(ckpt_cfg["save_dir"], exist_ok=True)
-    os.makedirs(log_cfg["log_dir"], exist_ok=True)
-
+    start_epoch = 1
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": []}
     early_stopping = EarlyStopping(
@@ -154,7 +157,26 @@ def finetune(config: dict):
     )
     use_early_stopping = train_cfg.get("early_stopping_patience", 0) > 0
 
-    for epoch in range(1, train_cfg["epochs"] + 1):
+    if resume_from:
+        state = load_training_state(resume_from, device)
+        model.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        start_epoch = state["epoch"] + 1
+        best_val_loss = state.get("best_val_loss", float("inf"))
+        history = state.get("history", {"train_loss": [], "val_loss": []})
+        if "early_stopping" in state:
+            early_stopping.best = state["early_stopping"]["best"]
+            early_stopping.counter = state["early_stopping"]["counter"]
+            early_stopping.should_stop = state["early_stopping"]["should_stop"]
+
+    # ------------------------------------------------------------------ #
+    # Training loop                                                        #
+    # ------------------------------------------------------------------ #
+    os.makedirs(ckpt_cfg["save_dir"], exist_ok=True)
+    os.makedirs(log_cfg["log_dir"], exist_ok=True)
+
+    for epoch in range(start_epoch, train_cfg["epochs"] + 1):
         # ---- Train --------------------------------------------------- #
         model.train()
         train_meter = AverageMeter("train_loss")
@@ -230,6 +252,24 @@ def finetune(config: dict):
                     best_path,
                 )
                 print(f"  [Best] Saved model to {best_path}")
+
+        # Save full training state for resume
+        resume_path = os.path.join(ckpt_cfg["save_dir"], f"latest_finetune_{mode}.pth")
+        save_training_state(
+            resume_path,
+            model=model.state_dict(),
+            optimizer=optimizer.state_dict(),
+            scheduler=scheduler.state_dict(),
+            epoch=epoch,
+            best_val_loss=best_val_loss,
+            history=history,
+            mode=mode,
+            early_stopping={
+                "best": early_stopping.best,
+                "counter": early_stopping.counter,
+                "should_stop": early_stopping.should_stop,
+            },
+        )
 
         if use_early_stopping and early_stopping.step(val_loss):
             print(f"Early stopping triggered at epoch {epoch} (patience={early_stopping.patience})")

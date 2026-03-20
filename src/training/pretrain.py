@@ -25,7 +25,10 @@ from src.training.utils import (
     cosine_schedule_with_warmup,
     get_device,
     init_wandb,
+    load_training_state,
     save_checkpoint,
+    save_training_state,
+    set_seed,
     wandb_finish,
     wandb_log,
 )
@@ -42,12 +45,14 @@ def _collect_image_paths(raw_dir: str) -> list:
     return paths
 
 
-def pretrain(config: dict):
+def pretrain(config: dict, resume_from: str | None = None):
     train_cfg = config["training"]
     model_cfg = config["model"]
     data_cfg = config["data"]
     ckpt_cfg = config["checkpointing"]
     log_cfg = config["logging"]
+
+    set_seed(train_cfg.get("seed", 42))
 
     device = get_device(train_cfg["device"])
     print(f"Device: {device}")
@@ -101,11 +106,9 @@ def pretrain(config: dict):
     )
 
     # ------------------------------------------------------------------ #
-    # Training loop                                                        #
+    # Resume from checkpoint (if requested)                                #
     # ------------------------------------------------------------------ #
-    os.makedirs(ckpt_cfg["save_dir"], exist_ok=True)
-    os.makedirs(log_cfg["log_dir"], exist_ok=True)
-
+    start_epoch = 1
     loss_history = []
     best_loss = float("inf")
     early_stopping = EarlyStopping(
@@ -114,7 +117,27 @@ def pretrain(config: dict):
     )
     use_early_stopping = train_cfg.get("early_stopping_patience", 0) > 0
 
-    for epoch in range(1, train_cfg["epochs"] + 1):
+    if resume_from:
+        state = load_training_state(resume_from, device)
+        encoder.load_state_dict(state["encoder"])
+        proj_head.load_state_dict(state["proj_head"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        start_epoch = state["epoch"] + 1
+        best_loss = state.get("best_loss", float("inf"))
+        loss_history = state.get("loss_history", [])
+        if "early_stopping" in state:
+            early_stopping.best = state["early_stopping"]["best"]
+            early_stopping.counter = state["early_stopping"]["counter"]
+            early_stopping.should_stop = state["early_stopping"]["should_stop"]
+
+    # ------------------------------------------------------------------ #
+    # Training loop                                                        #
+    # ------------------------------------------------------------------ #
+    os.makedirs(ckpt_cfg["save_dir"], exist_ok=True)
+    os.makedirs(log_cfg["log_dir"], exist_ok=True)
+
+    for epoch in range(start_epoch, train_cfg["epochs"] + 1):
         encoder.train()
         proj_head.train()
         meter = AverageMeter("loss")
@@ -176,6 +199,24 @@ def pretrain(config: dict):
                     best_path,
                 )
                 print(f"  [Best] Saved encoder to {best_path}")
+
+        # Save full training state for resume
+        resume_path = os.path.join(ckpt_cfg["save_dir"], "latest_pretrain.pth")
+        save_training_state(
+            resume_path,
+            encoder=encoder.state_dict(),
+            proj_head=proj_head.state_dict(),
+            optimizer=optimizer.state_dict(),
+            scheduler=scheduler.state_dict(),
+            epoch=epoch,
+            best_loss=best_loss,
+            loss_history=loss_history,
+            early_stopping={
+                "best": early_stopping.best,
+                "counter": early_stopping.counter,
+                "should_stop": early_stopping.should_stop,
+            },
+        )
 
         if use_early_stopping and early_stopping.step(epoch_loss):
             print(f"Early stopping triggered at epoch {epoch} (patience={early_stopping.patience})")

@@ -12,6 +12,7 @@ Usage:
     python train_finetune.py --mode linear_probe --epochs 30
     python train_finetune.py --mode imagenet_baseline
     python train_finetune.py --checkpoint checkpoints/pretrain/encoder_ep100.pth
+    python train_finetune.py --resume checkpoints/finetune/latest_finetune_full_finetune.pth
 """
 
 import argparse
@@ -33,6 +34,8 @@ def parse_args():
     p.add_argument("--batch_size", type=int, help="Override batch size")
     p.add_argument("--lr", type=float, help="Override learning rate")
     p.add_argument("--device", choices=["auto", "mps", "cuda", "cpu"], help="Override device")
+    p.add_argument("--seed", type=int, help="Override random seed (default: 42)")
+    p.add_argument("--resume", type=str, help="Path to checkpoint to resume training from")
     p.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     return p.parse_args()
 
@@ -55,6 +58,8 @@ def main():
         config["training"]["lr"] = args.lr
     if args.device:
         config["training"]["device"] = args.device
+    if args.seed is not None:
+        config["training"]["seed"] = args.seed
     if args.wandb:
         config.setdefault("wandb", {})["enabled"] = True
 
@@ -67,11 +72,14 @@ def main():
     print(f"  Epochs     : {config['training']['epochs']}")
     print(f"  Batch size : {config['training']['batch_size']}")
     print(f"  LR         : {config['training']['lr']}")
+    print(f"  Seed       : {config['training'].get('seed', 42)}")
     if mode != "imagenet_baseline":
         print(f"  Checkpoint : {config['model']['pretrained_checkpoint']}")
+    if args.resume:
+        print(f"  Resume from: {args.resume}")
     print("=" * 60)
 
-    finetune(config)
+    finetune(config, resume_from=args.resume)
 
 
 if __name__ == "__main__":
