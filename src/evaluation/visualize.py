@@ -162,8 +162,10 @@ def plot_gradcam(
         print("GradCAM unavailable. Install with: pip install grad-cam")
         return
 
+    from src.models.encoder import get_gradcam_target_layer
+
     model.eval()
-    target_layers = [model.encoder.backbone[-2][-1]]  # last ResNet block
+    target_layers = get_gradcam_target_layer(model.encoder)
 
     cam = GradCAM(model=model, target_layers=target_layers)
     targets = [ClassifierOutputTarget(target_class_idx)]
