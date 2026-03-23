@@ -33,8 +33,8 @@ augmentation:
   gaussian_blur_prob: 0.5
   gaussian_blur_kernel_min: 3
   gaussian_blur_kernel_max: 23
-  normalize_mean: [0.485]
-  normalize_std: [0.229]
+  normalize_mean: "auto"   # loads from data/processed/norm_stats.json; falls back to ImageNet [0.485]
+  normalize_std: "auto"    # loads from data/processed/norm_stats.json; falls back to ImageNet [0.229]
 
 checkpointing:
   save_dir: "checkpoints/pretrain"

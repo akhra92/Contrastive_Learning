@@ -6,11 +6,56 @@ Key differences from standard natural-image SimCLR:
   - Gaussian blur kernel size adjusted for 224x224 images
   - No RandomGrayscale (already grayscale)
   - Lighter crop scale preserved to keep pathological regions visible
+
+Normalization stats:
+  Set normalize_mean/normalize_std to "auto" in your config to load
+  dataset-specific stats from data/processed/norm_stats.json (computed by
+  src.data.compute_norm_stats). Falls back to ImageNet values if the file
+  doesn't exist.
 """
 
+import json
+import os
 import random
+
 import torchvision.transforms as T
 from torchvision.transforms import InterpolationMode
+
+# ImageNet grayscale fallbacks
+_IMAGENET_MEAN = [0.485]
+_IMAGENET_STD = [0.229]
+
+
+def _resolve_norm_stats(config: dict) -> tuple[list[float], list[float]]:
+    """
+    Resolve normalization mean/std from config.
+
+    If the values are "auto", load from data/processed/norm_stats.json.
+    Falls back to ImageNet grayscale values if the file doesn't exist.
+    """
+    aug_cfg = config.get("augmentation", config)
+    mean = aug_cfg.get("normalize_mean", _IMAGENET_MEAN)
+    std = aug_cfg.get("normalize_std", _IMAGENET_STD)
+
+    if mean == "auto" or std == "auto":
+        processed_dir = config.get("data", {}).get("processed_dir", "data/processed")
+        stats_path = os.path.join(processed_dir, "norm_stats.json")
+        if os.path.isfile(stats_path):
+            with open(stats_path) as f:
+                stats = json.load(f)
+            mean = stats["mean"]
+            std = stats["std"]
+            print(f"Using dataset-specific normalization: mean={mean}, std={std}")
+        else:
+            mean = _IMAGENET_MEAN
+            std = _IMAGENET_STD
+            print(
+                f"norm_stats.json not found at {stats_path}, "
+                f"falling back to ImageNet values: mean={mean}, std={std}. "
+                f"Run 'python -m src.data.compute_norm_stats' to compute dataset stats."
+            )
+
+    return mean, std
 
 
 class SimCLRAugmentation:
@@ -20,6 +65,7 @@ class SimCLRAugmentation:
         aug_cfg = config.get("augmentation", config)
         image_size = config.get("data", {}).get("image_size", config.get("image_size", 224))
         s = aug_cfg["color_jitter_strength"]
+        mean, std = _resolve_norm_stats(config)
 
         # Kernel size must be odd and > 0; clamp to valid range
         k_min = aug_cfg.get("gaussian_blur_kernel_min", 3)
@@ -44,7 +90,7 @@ class SimCLRAugmentation:
                 p=aug_cfg["gaussian_blur_prob"],
             ),
             T.ToTensor(),
-            T.Normalize(mean=aug_cfg["normalize_mean"], std=aug_cfg["normalize_std"]),
+            T.Normalize(mean=mean, std=std),
         ])
 
     def __call__(self, image):
@@ -58,6 +104,7 @@ class FinetuneAugmentation:
     def __init__(self, config: dict, train: bool = True):
         aug_cfg = config.get("augmentation", config)
         image_size = config.get("data", {}).get("image_size", config.get("image_size", 224))
+        mean, std = _resolve_norm_stats(config)
 
         if train:
             self.transform = T.Compose([
@@ -68,14 +115,14 @@ class FinetuneAugmentation:
                 ),
                 T.RandomHorizontalFlip(p=aug_cfg["horizontal_flip_prob"]),
                 T.ToTensor(),
-                T.Normalize(mean=aug_cfg["normalize_mean"], std=aug_cfg["normalize_std"]),
+                T.Normalize(mean=mean, std=std),
             ])
         else:
             self.transform = T.Compose([
                 T.Resize(256, interpolation=InterpolationMode.BICUBIC),
                 T.CenterCrop(image_size),
                 T.ToTensor(),
-                T.Normalize(mean=aug_cfg["normalize_mean"], std=aug_cfg["normalize_std"]),
+                T.Normalize(mean=mean, std=std),
             ])
 
     def __call__(self, image):

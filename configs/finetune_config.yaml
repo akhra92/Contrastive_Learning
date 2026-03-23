@@ -32,8 +32,8 @@ training:
 augmentation:
   random_resized_crop_scale: [0.7, 1.0]
   horizontal_flip_prob: 0.5
-  normalize_mean: [0.485]
-  normalize_std: [0.229]
+  normalize_mean: "auto"   # loads from data/processed/norm_stats.json; falls back to ImageNet [0.485]
+  normalize_std: "auto"    # loads from data/processed/norm_stats.json; falls back to ImageNet [0.229]
 
 checkpointing:
   save_dir: "checkpoints/finetune"
