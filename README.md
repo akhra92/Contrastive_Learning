@@ -15,13 +15,13 @@ Raw X-ray images
       │
       ▼
 [SimCLR Pre-training]          ← self-supervised, no labels used
-  ResNet50 encoder
+  Configurable encoder
   + Projection head (MLP)
   + NT-Xent contrastive loss
       │
       ▼  (projection head discarded)
 [Fine-tuning]                  ← supervised, multi-label BCE loss
-  Pre-trained ResNet50 encoder
+  Pre-trained encoder
   + Classification head (MLP)
       │
       ▼
@@ -56,6 +56,27 @@ Source: [kaggle.com/datasets/nih-chest-xrays/data](https://www.kaggle.com/datase
 
 ---
 
+## Supported Backbones
+
+The encoder is configurable via the `backbone` field in config files. All backbones are automatically adapted for single-channel grayscale input.
+
+| Family | Backbone | Feature dim |
+|---|---|---|
+| ResNet | `resnet18` | 512 |
+| ResNet | `resnet34` | 512 |
+| ResNet | `resnet50` (default) | 2048 |
+| ResNet | `resnet101` | 2048 |
+| EfficientNet | `efficientnet_b0` | 1280 |
+| EfficientNet | `efficientnet_b1` | 1280 |
+| EfficientNet | `efficientnet_b2` | 1408 |
+| ViT | `vit_b_16` | 768 |
+| ViT | `vit_b_32` | 768 |
+| ViT | `vit_l_16` | 1024 |
+
+The projection head and classification head automatically adapt to the backbone's feature dimension.
+
+---
+
 ## Project Structure
 
 ```
@@ -80,12 +101,13 @@ Contrastive_Learning/
 │   ├── data/
 │   │   ├── augmentations.py      # SimCLR + finetune augmentation pipelines
 │   │   ├── dataset.py            # SimCLRDataset, ChestXrayDataset
-│   │   └── preprocess.py        # Build patient-level train/val/test splits
+│   │   ├── preprocess.py         # Build patient-level train/val/test splits
+│   │   └── compute_norm_stats.py # Compute dataset-specific mean/std
 │   │
 │   ├── models/
-│   │   ├── encoder.py            # ResNet50 adapted for grayscale input
+│   │   ├── encoder.py            # Multi-backbone encoder with registry
 │   │   ├── projection_head.py    # 2-layer MLP projection head (SimCLR)
-│   │   └── classifier.py        # Multi-label classification head
+│   │   └── classifier.py         # Multi-label classification head
 │   │
 │   ├── losses/
 │   │   └── nt_xent.py           # NT-Xent contrastive loss
@@ -93,7 +115,7 @@ Contrastive_Learning/
 │   ├── training/
 │   │   ├── pretrain.py          # SimCLR pre-training loop
 │   │   ├── finetune.py          # Supervised fine-tuning loop
-│   │   └── utils.py             # Device selection, checkpointing, LR schedules
+│   │   └── utils.py             # Device selection, checkpointing, LR schedules, seeding
 │   │
 │   └── evaluation/
 │       ├── metrics.py           # AUC-ROC, Average Precision, F1
@@ -110,11 +132,11 @@ Contrastive_Learning/
 │
 ├── data/
 │   ├── raw/                      # Downloaded dataset (gitignored)
-│   └── processed/                # Generated CSV splits (gitignored)
+│   └── processed/                # Generated CSV splits + norm_stats.json (gitignored)
 │
 ├── checkpoints/
-│   ├── pretrain/                 # Saved encoder checkpoints
-│   └── finetune/                 # Saved classifier checkpoints
+│   ├── pretrain/                 # Saved encoder + resume checkpoints
+│   └── finetune/                 # Saved classifier + resume checkpoints
 │
 └── logs/                         # Training logs and output figures
 ```
@@ -173,7 +195,22 @@ This will:
 
 > **Patient-level splitting:** All images from the same patient are kept in the same split to prevent data leakage. The official NIH test list is used as the test split.
 
-### Step 2 — SimCLR pre-training
+### Step 2 — Compute dataset normalization stats (recommended)
+
+```bash
+python -m src.data.compute_norm_stats
+```
+
+This computes the true mean and standard deviation of the chest X-ray dataset and saves them to `data/processed/norm_stats.json`. Training scripts load these automatically when `normalize_mean` / `normalize_std` are set to `"auto"` in the config (the default).
+
+For a faster estimate using a subset:
+```bash
+python -m src.data.compute_norm_stats --max_samples 5000
+```
+
+> If you skip this step, training falls back to ImageNet normalization values (`mean=0.485, std=0.229`) with a warning.
+
+### Step 3 — SimCLR pre-training
 
 ```bash
 bash scripts/run_pretrain.sh
@@ -191,14 +228,22 @@ python train_pretrain.py --epochs 100 --batch_size 256 --device auto
 | `--epochs` | 100 | Number of training epochs |
 | `--batch_size` | 256 | Batch size (larger = more negatives = better) |
 | `--lr` | 3e-4 | Learning rate |
-| `--temperature` | 0.07 | NT-Xent temperature τ |
+| `--temperature` | 0.1 | NT-Xent temperature τ |
 | `--device` | auto | `auto` / `mps` / `cuda` / `cpu` |
+| `--seed` | 42 | Random seed for reproducibility |
+| `--resume` | — | Path to checkpoint to resume training from |
+| `--wandb` | off | Enable Weights & Biases logging |
 
 Checkpoints are saved to `checkpoints/pretrain/`. The best encoder is saved as `best_encoder.pth`.
 
 > **Note:** Pre-training uses ALL images (labels ignored), so even test-split images participate — this is valid because no labels are used.
 
-### Step 3 — Fine-tune for classification
+**Resuming after a crash:**
+```bash
+python train_pretrain.py --resume checkpoints/pretrain/latest_pretrain.pth
+```
+
+### Step 4 — Fine-tune for classification
 
 **Full fine-tuning (recommended):**
 ```bash
@@ -228,10 +273,18 @@ bash scripts/run_finetune.sh --mode full_finetune
 | `--batch_size` | 64 | Batch size |
 | `--lr` | 1e-4 | Classifier learning rate |
 | `--device` | auto | Device |
+| `--seed` | 42 | Random seed for reproducibility |
+| `--resume` | — | Path to checkpoint to resume training from |
+| `--wandb` | off | Enable Weights & Biases logging |
 
 Best models saved to `checkpoints/finetune/best_model_<mode>.pth`.
 
-### Step 4 — Evaluate on the test set
+**Resuming after a crash:**
+```bash
+python train_finetune.py --resume checkpoints/finetune/latest_finetune_full_finetune.pth
+```
+
+### Step 5 — Evaluate on the test set
 
 ```bash
 python evaluate.py --checkpoint checkpoints/finetune/best_model_full_finetune.pth
@@ -277,17 +330,26 @@ jupyter lab notebooks/
 
 ## Architecture Details
 
-### SimCLR Encoder (ResNet50)
+### Encoder (Configurable backbone)
 
-Standard ResNet50 with two modifications:
-- **First conv:** `in_channels=3` → `in_channels=1` (grayscale X-rays)
-- **Head removed:** Average-pooling + FC classifier stripped; outputs a 2048-dim feature vector
+All backbones are adapted for single-channel grayscale input:
+- **ResNet family:** First conv `in_channels=3` → `1`; avgpool + FC stripped
+- **EfficientNet family:** First conv `in_channels=3` → `1`; classifier stripped
+- **ViT family:** Patch embedding conv `in_channels=3` → `1`; classification head stripped
+
+When using ImageNet-pretrained weights, the RGB channel weights are averaged to initialise the single-channel convolution.
+
+Set the backbone in `configs/pretrain_config.yaml`:
+```yaml
+model:
+  backbone: "resnet50"    # or resnet18, efficientnet_b0, vit_b_16, etc.
+```
 
 ### Projection Head
 
 2-layer MLP used only during pre-training, then discarded:
 ```
-h (2048) → Linear → BN → ReLU → Linear → L2-normalise → z (128)
+h (feature_dim) → Linear → BN → ReLU → Linear → L2-normalise → z (128)
 ```
 
 ### NT-Xent Loss
@@ -298,7 +360,7 @@ For a batch of N images (→ 2N augmented views):
 L = -log [ exp(sim(zᵢ, zⱼ) / τ) / Σ_{k≠i} exp(sim(zᵢ, zₖ) / τ) ]
 ```
 
-where `sim` is cosine similarity and `τ = 0.07`. Each view's positive pair is the other augmented view of the same image; all other 2(N-1) views are negatives.
+where `sim` is cosine similarity and `τ = 0.1`. Each view's positive pair is the other augmented view of the same image; all other 2(N-1) views are negatives.
 
 ### Augmentation Pipeline (X-ray adapted)
 
@@ -308,16 +370,50 @@ SimCLR augmentations are tuned for grayscale medical images:
 - Color jitter (brightness + contrast only — no saturation/hue for grayscale)
 - Random Gaussian blur
 - No `RandomGrayscale` (already grayscale)
+- Normalization using dataset-specific stats (computed via `src.data.compute_norm_stats`, or ImageNet fallback)
 
 ### Classification Head
 
 ```
-h (2048) → Linear(512) → BN → ReLU → Dropout(0.3) → Linear(15) → logits
+h (feature_dim) → Linear(512) → BN → ReLU → Dropout(0.3) → Linear(15) → logits
 ```
 
 - Loss: `BCEWithLogitsLoss` with per-class `pos_weight` for class imbalance
 - Sigmoid applied at inference time (threshold = 0.5)
 - Differential LR: backbone gets 10× lower LR than classifier head
+
+---
+
+## Reproducibility
+
+All training scripts set a global random seed (default: 42) across Python, NumPy, and PyTorch for reproducible results:
+
+```bash
+python train_pretrain.py --seed 42
+python train_finetune.py --seed 42
+```
+
+This also sets `torch.backends.cudnn.deterministic = True` and `torch.backends.cudnn.benchmark = False` for deterministic CUDA operations.
+
+The seed can be configured via CLI (`--seed`) or in the YAML config (`training.seed`).
+
+---
+
+## Training Resume
+
+Both pre-training and fine-tuning automatically save a full training state checkpoint (`latest_pretrain.pth` / `latest_finetune_<mode>.pth`) after every epoch. This includes model weights, optimizer state, scheduler state, epoch number, best loss, loss history, and early stopping state.
+
+To resume after a crash or interruption:
+
+```bash
+# Resume pre-training
+python train_pretrain.py --resume checkpoints/pretrain/latest_pretrain.pth
+
+# Resume fine-tuning
+python train_finetune.py --resume checkpoints/finetune/latest_finetune_full_finetune.pth
+```
+
+Training continues seamlessly from the next epoch with all state restored.
 
 ---
 
@@ -343,12 +439,20 @@ All hyperparameters are in YAML files under `configs/`. CLI arguments override c
 **Key pre-training hyperparameters** (`configs/pretrain_config.yaml`):
 
 ```yaml
+model:
+  backbone: "resnet50"   # resnet18/34/50/101, efficientnet_b0/b1/b2, vit_b_16/b_32/l_16
+
 training:
   epochs: 100
-  batch_size: 256      # critical: larger = more in-batch negatives
-  temperature: 0.07    # NT-Xent τ — lower = sharper distribution
+  batch_size: 256        # critical: larger = more in-batch negatives
+  temperature: 0.1       # NT-Xent τ — lower = sharper distribution
   lr: 3.0e-4
-  warmup_epochs: 10    # linear LR warm-up before cosine decay
+  warmup_epochs: 10      # linear LR warm-up before cosine decay
+  seed: 42               # global random seed
+
+augmentation:
+  normalize_mean: "auto"   # loads dataset stats from norm_stats.json
+  normalize_std: "auto"    # falls back to ImageNet if not computed
 ```
 
 **Key fine-tuning hyperparameters** (`configs/finetune_config.yaml`):
@@ -361,6 +465,7 @@ training:
   lr: 1.0e-4
   backbone_lr_multiplier: 0.1   # backbone gets 10x lower LR
   use_class_weights: true       # compensate for class imbalance
+  seed: 42
 ```
 
 ---
@@ -376,8 +481,11 @@ training:
 **`FileNotFoundError: Checkpoint not found`**
 → Run pre-training first; then pass the correct path with `--checkpoint`.
 
+**`ValueError: Unsupported backbone`**
+→ Check `src/models/encoder.py:available_backbones()` for the list of valid backbone names.
+
 **MPS out of memory**
-→ Reduce `batch_size` in the config or CLI: `--batch_size 128`
+→ Reduce `batch_size` in the config or CLI: `--batch_size 128`. Smaller backbones like `resnet18` or `efficientnet_b0` also use less memory.
 
 **`ImportError: No module named 'pytorch_grad_cam'`**
 → GradCAM is optional. Skip it with `--no_gradcam`, or install: `pip install grad-cam`
@@ -385,3 +493,6 @@ training:
 **Slow pre-training on CPU**
 → Reduce `epochs` and `batch_size` for a quick test run:
 `python train_pretrain.py --epochs 5 --batch_size 64`
+
+**Normalization warning: "norm_stats.json not found"**
+→ Run `python -m src.data.compute_norm_stats` to compute dataset-specific stats. Training will still work using ImageNet fallback values.
