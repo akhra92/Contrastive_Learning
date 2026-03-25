@@ -81,6 +81,7 @@ class SimCLRAugmentation:
                 interpolation=InterpolationMode.BICUBIC,
             ),
             T.RandomHorizontalFlip(p=aug_cfg["horizontal_flip_prob"]),
+            T.RandomRotation(degrees=aug_cfg.get("rotation_degrees", 10)),
             T.RandomApply(
                 [T.ColorJitter(brightness=0.8 * s, contrast=0.8 * s, saturation=0, hue=0)],
                 p=aug_cfg["color_jitter_prob"],
