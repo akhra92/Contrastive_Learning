@@ -115,6 +115,7 @@ class FinetuneAugmentation:
                     interpolation=InterpolationMode.BICUBIC,
                 ),
                 T.RandomHorizontalFlip(p=aug_cfg["horizontal_flip_prob"]),
+                T.RandomRotation(degrees=aug_cfg.get("rotation_degrees", 10)),
                 T.ToTensor(),
                 T.Normalize(mean=mean, std=std),
             ])
