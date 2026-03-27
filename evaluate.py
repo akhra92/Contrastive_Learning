@@ -3,10 +3,12 @@ Full evaluation suite on the NIH Chest X-ray14 test set.
 
 Computes per-class and macro-averaged AUC-ROC, Average Precision, and F1.
 Generates: ROC curves, t-SNE embeddings, GradCAM saliency maps, loss curves.
+Optionally exports the model to ONNX and/or TorchScript.
 
 Usage:
     python evaluate.py --checkpoint checkpoints/finetune/best_model_full_finetune.pth
     python evaluate.py --checkpoint <path> --mode full_finetune --no_gradcam
+    python evaluate.py --checkpoint <path> --export onnx torchscript
 """
 
 import argparse
@@ -39,6 +41,14 @@ def parse_args():
     p.add_argument("--no_tsne", action="store_true", help="Skip t-SNE (slow for large datasets)")
     p.add_argument("--no_gradcam", action="store_true", help="Skip GradCAM generation")
     p.add_argument("--output_dir", default="logs", help="Directory for saved figures")
+    p.add_argument(
+        "--export",
+        nargs="+",
+        choices=["onnx", "torchscript"],
+        default=None,
+        help="Export model to ONNX and/or TorchScript after evaluation",
+    )
+    p.add_argument("--export_dir", default="exports", help="Directory for exported models")
     return p.parse_args()
 
 
@@ -141,6 +151,25 @@ def main():
             device=device,
             save_path=os.path.join(args.output_dir, "gradcam_pneumonia.png"),
         )
+
+    # ------------------------------------------------------------------ #
+    # Model export                                                          #
+    # ------------------------------------------------------------------ #
+    if args.export:
+        from export_model import export_onnx, export_torchscript
+
+        image_size = data_cfg["image_size"]
+        # Export on CPU for compatibility
+        export_device = torch.device("cpu")
+        export_model = model.to(export_device)
+        export_model.eval()
+        dummy_input = torch.randn(1, 1, image_size, image_size, device=export_device)
+        base_name = os.path.splitext(os.path.basename(args.checkpoint))[0]
+
+        if "onnx" in args.export:
+            export_onnx(export_model, dummy_input, os.path.join(args.export_dir, f"{base_name}.onnx"))
+        if "torchscript" in args.export:
+            export_torchscript(export_model, dummy_input, os.path.join(args.export_dir, f"{base_name}.pt"))
 
     print("\nEvaluation complete. Outputs saved to:", args.output_dir)
 
