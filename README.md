@@ -124,6 +124,7 @@ Contrastive_Learning/
 ├── train_pretrain.py             # Entry point: SimCLR pre-training
 ├── train_finetune.py             # Entry point: fine-tuning / linear probe
 ├── evaluate.py                   # Entry point: test set evaluation + plots
+├── export_model.py               # Entry point: ONNX / TorchScript export
 │
 ├── notebooks/
 │   ├── 01_data_exploration.ipynb    # Class distribution, sample images
@@ -137,6 +138,8 @@ Contrastive_Learning/
 ├── checkpoints/
 │   ├── pretrain/                 # Saved encoder + resume checkpoints
 │   └── finetune/                 # Saved classifier + resume checkpoints
+│
+├── exports/                      # Exported ONNX / TorchScript models
 │
 └── logs/                         # Training logs and output figures
 ```
@@ -302,6 +305,8 @@ bash scripts/run_eval.sh --checkpoint checkpoints/finetune/best_model_full_finet
 | `--no_tsne` | Skip t-SNE (slow for large datasets) |
 | `--no_gradcam` | Skip GradCAM generation |
 | `--output_dir` | Directory for output figures (default: `logs/`) |
+| `--export onnx torchscript` | Export model after evaluation (one or both formats) |
+| `--export_dir` | Directory for exported models (default: `exports/`) |
 
 **Outputs saved to `logs/`:**
 - `metrics_<mode>.txt` — per-class and macro-averaged AUC-ROC, AP, F1
@@ -367,6 +372,7 @@ where `sim` is cosine similarity and `τ = 0.1`. Each view's positive pair is th
 SimCLR augmentations are tuned for grayscale medical images:
 - Random resized crop (scale 0.08–1.0)
 - Random horizontal flip
+- Random rotation (±10°, configurable via `rotation_degrees`)
 - Color jitter (brightness + contrast only — no saturation/hue for grayscale)
 - Random Gaussian blur
 - No `RandomGrayscale` (already grayscale)
@@ -414,6 +420,37 @@ python train_finetune.py --resume checkpoints/finetune/latest_finetune_full_fine
 ```
 
 Training continues seamlessly from the next epoch with all state restored.
+
+---
+
+## Model Export
+
+Export a fine-tuned model to ONNX and/or TorchScript for deployment or optimised inference.
+
+**Standalone export:**
+```bash
+python export_model.py --checkpoint checkpoints/finetune/best_model_full_finetune.pth
+```
+
+**Export after evaluation:**
+```bash
+python evaluate.py --checkpoint checkpoints/finetune/best_model_full_finetune.pth --export onnx torchscript
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `--checkpoint` | (required) | Path to fine-tuned model checkpoint |
+| `--format` | `onnx torchscript` | Export format(s): `onnx`, `torchscript`, or both |
+| `--output_dir` | `exports/` | Directory for exported models |
+| `--image_size` | from config | Input image size |
+| `--opset` | 17 | ONNX opset version |
+| `--device` | cpu | Device for export (CPU recommended for compatibility) |
+
+**Exported files:**
+- `exports/<checkpoint_name>.onnx` — ONNX model with dynamic batch size
+- `exports/<checkpoint_name>.pt` — TorchScript traced model
+
+Both formats support dynamic batch sizes and are verified against the original model during export. ONNX verification requires the `onnx` package (`pip install onnx`).
 
 ---
 
