@@ -8,10 +8,13 @@ Two distinct contracts:
 """
 
 import os
+import logging
 import numpy as np
 import pandas as pd
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from torch.utils.data import Dataset
+
+logger = logging.getLogger(__name__)
 
 ALL_CLASSES = [
     "No Finding",
@@ -61,7 +64,12 @@ class SimCLRDataset(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, idx: int):
-        image = Image.open(self.image_paths[idx]).convert("L")  # grayscale
+        path = self.image_paths[idx]
+        try:
+            image = Image.open(path).convert("L")  # grayscale
+        except (OSError, UnidentifiedImageError) as e:
+            logger.warning("Skipping unreadable image %s: %s", path, e)
+            return self.__getitem__((idx + 1) % len(self.image_paths))
         view1, view2 = self.augmentation(image)
         return view1, view2
 
@@ -88,7 +96,11 @@ class ChestXrayDataset(Dataset):
     def __getitem__(self, idx: int):
         row = self.df.iloc[idx]
         img_path = os.path.join(self.image_dir, row["Image Index"])
-        image = Image.open(img_path).convert("L")
+        try:
+            image = Image.open(img_path).convert("L")
+        except (OSError, UnidentifiedImageError) as e:
+            logger.warning("Skipping unreadable image %s: %s", img_path, e)
+            return self.__getitem__((idx + 1) % len(self.df))
         if self.transform:
             image = self.transform(image)
         return image, self.labels[idx]
